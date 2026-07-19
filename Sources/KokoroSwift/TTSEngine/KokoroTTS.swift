@@ -356,25 +356,39 @@ public final class KokoroTTS {
   ///   - batchSize: Size of the input batch
   /// - Returns: Alignment matrix [batchSize × totalFrames]
   private func createAlignmentTarget(durations: MLXArray, batchSize: Int) -> MLXArray {
-    // Create indices array by repeating each index according to its duration
-    let indices = MLX.concatenated(
-      durations.enumerated().map { index, duration in
-        let frameCount: Int = duration.item()
-        return MLX.repeated(MLXArray([index]), count: frameCount)
-      }
+    // Materialize once. Scalar item() calls here serialize GPU work for every
+    // token and generated frame, which dominates duration expansion on device.
+    let frameCounts = durations.asArray(Int32.self).map(Int.init)
+    let (alignmentArray, totalFrames) = Self.makeAlignmentArray(
+      frameCounts: frameCounts,
+      batchSize: batchSize
     )
 
-    // Create one-hot encoded alignment matrix
-    let totalFrames = indices.shape[0]
-    var alignmentArray = [Float](repeating: 0.0, count: totalFrames * batchSize)
-    
-    for frame in 0 ..< totalFrames {
-      let phonemeIndex: Int = indices[frame].item()
-      alignmentArray[phonemeIndex * totalFrames + frame] = 1.0
-    }
-    
     let alignmentTarget = MLXArray(alignmentArray).reshaped([batchSize, totalFrames])
     return alignmentTarget.expandedDimensions(axis: 0)
+  }
+
+  /// Builds the row-major one-hot duration expansion used by the decoder.
+  static func makeAlignmentArray(
+    frameCounts: [Int],
+    batchSize: Int
+  ) -> (values: [Float], totalFrames: Int) {
+    precondition(frameCounts.count == batchSize)
+    precondition(frameCounts.allSatisfy { $0 >= 0 })
+
+    let totalFrames = frameCounts.reduce(0, +)
+    var values = [Float](repeating: 0, count: batchSize * totalFrames)
+    var frameOffset = 0
+
+    for (phonemeIndex, frameCount) in frameCounts.enumerated() {
+      let rowOffset = phonemeIndex * totalFrames
+      for frame in frameOffset ..< frameOffset + frameCount {
+        values[rowOffset + frame] = 1
+      }
+      frameOffset += frameCount
+    }
+
+    return (values, totalFrames)
   }
   
   /// Constants used throughout the TTS engine.
