@@ -20,7 +20,7 @@ let package = Package(
     // .package(url: "https://github.com/mlalma/eSpeakNGSwift", from: "1.0.1"),
     .package(
       url: "https://github.com/toastersocks/MisakiSwift",
-      revision: "28fff6db3f69dbc7075d1e0b108a0a9fdce57085"
+      revision: "13a2ad4038169943a02820dd92f9c3d16fec07dd"
     ),
     .package(url: "https://github.com/mlalma/MLXUtilsLibrary.git", exact: "0.0.6")
   ],
