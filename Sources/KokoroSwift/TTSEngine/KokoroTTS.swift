@@ -163,9 +163,6 @@ public final class KokoroTTS {
     // Initialize G2P processor for text-to-phoneme conversion
     g2pProcessor = try? G2PFactory.createG2PProcessor(engine: g2p)
 
-    if configuration.compilesModelStages {
-      configureCompiledStages()
-    }
   }
 
   /// Generates audio from text using the specified voice and parameters.
@@ -187,6 +184,17 @@ public final class KokoroTTS {
   public func generateAudio(voice: MLXArray, language: Language, text: String, speed: Float = 1.0)
     throws -> ([Float], [MToken]?)
   {
+    if configuration.compilesModelStages {
+      configureCompiledStages()
+    }
+    defer {
+      if configuration.compilesModelStages {
+        KokoroPerformance.measured("Kokoro Release Compiled Graphs") {
+          releaseCompiledStages()
+        }
+      }
+    }
+
     // Update language if it has changed
     try updateLanguageIfNeeded(language)
 
@@ -529,6 +537,17 @@ public final class KokoroTTS {
     compiledDecoder = MLX.compile { [decoder] arrays in
       [decoder(asr: arrays[0], F0Curve: arrays[1], N: arrays[2], s: arrays[3])[0]]
     }
+  }
+
+  /// Releasing the closures erases their shape-specific entries from MLX's compiler cache.
+  /// Article sections vary in token and frame count, so retaining every variant can exhaust
+  /// memory during a long generation run.
+  private func releaseCompiledStages() {
+    compiledBERTAndDuration = nil
+    compiledDurationPrediction = nil
+    compiledProsodyPrediction = nil
+    compiledTextEncoding = nil
+    compiledDecoder = nil
   }
 
   /// Builds the row-major one-hot duration expansion used by the decoder.
