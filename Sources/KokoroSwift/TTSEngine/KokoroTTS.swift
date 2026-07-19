@@ -495,7 +495,10 @@ public final class KokoroTTS {
     let textEncoder = textEncoder!
     let decoder = decoder!
 
-    compiledBERTAndDuration = MLX.compile(shapeless: true) {
+    // Kokoro's graphs contain shape-dependent operations. Shape-aware compilation
+    // avoids backend aborts from unsupported shapeless traces. Model weights are
+    // immutable during inference, so capturing them as constants is intentional.
+    compiledBERTAndDuration = MLX.compile {
       [bert, bertEncoder, durationEncoder] arrays in
       let (bertOutput, _) = bert(arrays[0], attentionMask: arrays[1])
       let bertEncoded = bertEncoder(bertOutput).transposed(0, 2, 1)
@@ -508,22 +511,22 @@ public final class KokoroTTS {
         )
       ]
     }
-    compiledDurationPrediction = MLX.compile(shapeless: true) {
+    compiledDurationPrediction = MLX.compile {
       [predictorLSTM, durationProj] arrays in
       let (lstmOutput, _) = predictorLSTM(arrays[0])
       let logits = durationProj(lstmOutput)
       let duration = MLX.sigmoid(logits).sum(axis: -1) / arrays[1]
       return [MLX.clip(duration.round(), min: 1).asType(.int32)[0]]
     }
-    compiledProsodyPrediction = MLX.compile(shapeless: true) { [prosodyPredictor] arrays in
+    compiledProsodyPrediction = MLX.compile { [prosodyPredictor] arrays in
       let (f0, noise) = prosodyPredictor.F0NTrain(x: arrays[0], s: arrays[1])
       return [f0, noise]
     }
-    compiledTextEncoding = MLX.compile(shapeless: true) { [textEncoder] arrays in
+    compiledTextEncoding = MLX.compile { [textEncoder] arrays in
       let encoded = textEncoder(arrays[0], inputLengths: arrays[1], m: arrays[2])
       return [MLX.matmul(encoded, arrays[3])]
     }
-    compiledDecoder = MLX.compile(shapeless: true) { [decoder] arrays in
+    compiledDecoder = MLX.compile { [decoder] arrays in
       [decoder(asr: arrays[0], F0Curve: arrays[1], N: arrays[2], s: arrays[3])[0]]
     }
   }
