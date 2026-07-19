@@ -31,13 +31,22 @@ final class WeightLoader {
   /// - Parameter modelPath: URL to the directory containing model weight files
   /// - Returns: Dictionary mapping weight names to their processed MLXArray tensors
   /// - Note: Uses forced try (try!) as weight loading is critical and should fail fast if unsuccessful
-  static func loadWeights(modelPath: URL) -> [String: MLXArray] {
+  static func loadWeights(
+    modelPath: URL,
+    precision: KokoroConfiguration.WeightPrecision = .float32
+  ) -> [String: MLXArray] {
     // Load raw weights from disk
     let weights = try! MLX.loadArrays(url: modelPath)
     var sanitizedWeights: [String: MLXArray] = [:]
 
     // Process each weight based on its component prefix
-    for (key, value) in weights {
+    for (key, loadedValue) in weights {
+      let value =
+        if precision == .float16, loadedValue.dtype.isFloatingPoint {
+          loadedValue.asType(.float16)
+        } else {
+          loadedValue
+        }
       // Process BERT encoder weights
       if key.hasPrefix("bert") {
         // Skip position_ids as they're not needed for inference
@@ -45,18 +54,18 @@ final class WeightLoader {
           continue
         }
         sanitizedWeights[key] = value
-        
-      // Process predictor (duration and prosody) weights
+
+        // Process predictor (duration and prosody) weights
       } else if key.hasPrefix("predictor") {
         // F0 projection weights need transposition for proper matrix multiplication
         if key.contains("F0_proj.weight") {
           sanitizedWeights[key] = value.transposed(0, 2, 1)
-          
-        // N (noise) projection weights need transposition
+
+          // N (noise) projection weights need transposition
         } else if key.contains("N_proj.weight") {
           sanitizedWeights[key] = value.transposed(0, 2, 1)
-          
-        // Weight normalization V parameters need conditional transposition
+
+          // Weight normalization V parameters need conditional transposition
         } else if key.contains("weight_v") {
           if checkArrayShape(arr: value) {
             sanitizedWeights[key] = value
@@ -66,8 +75,8 @@ final class WeightLoader {
         } else {
           sanitizedWeights[key] = value
         }
-        
-      // Process text encoder weights
+
+        // Process text encoder weights
       } else if key.hasPrefix("text_encoder") {
         // Weight normalization V parameters need conditional transposition
         if key.contains("weight_v") {
@@ -79,14 +88,14 @@ final class WeightLoader {
         } else {
           sanitizedWeights[key] = value
         }
-        
-      // Process decoder weights
+
+        // Process decoder weights
       } else if key.hasPrefix("decoder") {
         // Noise convolution weights need transposition
         if key.contains("noise_convs"), key.hasSuffix(".weight") {
           sanitizedWeights[key] = value.transposed(0, 2, 1)
-          
-        // Weight normalization V parameters need conditional transposition
+
+          // Weight normalization V parameters need conditional transposition
         } else if key.contains("weight_v") {
           if checkArrayShape(arr: value) {
             sanitizedWeights[key] = value
